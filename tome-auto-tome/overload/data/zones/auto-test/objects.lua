@@ -1,0 +1,1 @@
+-- Items are spawned by enter_test.

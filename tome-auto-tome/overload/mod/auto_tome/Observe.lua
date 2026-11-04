@@ -21,6 +21,20 @@ local function recent_log(game)
 	return {}
 end
 
+local function object_desc(object)
+	if type(object) ~= "table" then return nil end
+	local text = nil
+	if type(object.getDesc) == "function" then
+		local ok, value = pcall(function() return object:getDesc({do_color = false}) end)
+		if ok then text = value end
+	end
+	if type(text) ~= "string" or text == "" then text = object.desc end
+	if type(text) ~= "string" or text == "" then return nil end
+	text = Prompt.plain(text)
+	if #text > 1200 then text = text:sub(1, 1200) end
+	return text
+end
+
 local function item_record(object, extra)
 	local record = {
 		id = "item-" .. tostring(object.uid or 0),
@@ -51,7 +65,10 @@ local function floor_items(game, player)
 	while true do
 		local object = map:getObject(player.x, player.y, index)
 		if not object then break end
-		items[#items + 1] = item_record(object, {x = player.x, y = player.y})
+		local extra = {x = player.x, y = player.y}
+		local desc = object_desc(object)
+		if desc then extra.desc = desc end
+		items[#items + 1] = item_record(object, extra)
 		index = index + 1
 	end
 	return items
@@ -134,6 +151,7 @@ function M.snapshot(game)
 		zone = game.zone and Prompt.plain(game.zone.short_name or game.zone.name) or "",
 		zone_name = game.zone and Prompt.plain(game.zone.name) or "",
 		level = game.level and game.level.level or 0,
+		character_level = player.level or 0,
 		actors = Json.array(visible_actors(game, player)),
 		talents = Json.array(talents_of(player)),
 		inventory = Json.array(inventory_items(player)),

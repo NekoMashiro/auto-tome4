@@ -83,7 +83,7 @@ PYTHONPATH=server python3 -m auto_tome_mcp
 | `tome-auto-tome/overload/data/zones/auto-test/` | 两层静态图 |
 | `server/auto_tome_mcp/` | MCP stdio 服务和游戏端口客户端 |
 | `tools/play_test.py` | 验收脚本，只调用 `look` 和 `act` |
-| `tools/drive_game.py` | 打开游戏、读档或进教程，并保持指针移动 |
+| `tools/drive_game.py` | 用命令行进入关卡，并保持指针移动 |
 | `tools/test_mcp_framing.py` | 不启动游戏也能跑的协议和路线检查 |
 
 `Json.lua` 不使用游戏自带的 `Json2.lua`。空表编码成对象。出站字符串是原始 UTF-8。`\uXXXX` 的解码只适合码点小于 256 的情况，验收流量是 ASCII。
@@ -116,7 +116,7 @@ python3 tools/test_mcp_framing.py
 python3 tools/drive_game.py
 ```
 
-它会启动 `~/tome-test/t-engine4-linux64-1.7.6` 里的 1.7.6，把本仓库的插件复制成 `game/addons` 下的真实目录，点击 Load Game 和存档列表的第一行，再跑 `play_test.py`。`--new tutorial` 改为走教程建角。`--wiggle-only` 只移动指针。`--quit` 在脚本结束时关掉游戏。
+它会启动 `~/tome-test/t-engine4-linux64-1.7.6` 里的 1.7.6，把本仓库的插件复制成 `game/addons` 下的真实目录，用 `-Mtome -n` 直接建一个科纳克狂战士并进入巨魔沼泽，再跑 `play_test.py`。主菜单和建角窗口都不会出现。`--save 名字` 改为读取已有存档。`--wiggle-only` 只移动指针。`--quit` 在脚本结束时关掉游戏。
 
 游戏已经在关卡里、只想重跑验收时：
 
@@ -128,7 +128,7 @@ PYTHONPATH=server python3 tools/play_test.py
 
 角色空闲时，引擎阻塞在 `SDL_WaitEvent`，主线程不再跑帧。桥只在 `Game:tick` 里读端口，所以一条新请求会一直挂着，直到有一次真正的鼠标或键盘事件。动作开始之后帧会自己继续，休息、奔跑和自动探索都能在一条 `act` 里走完。卡住的是两条命令之间的那一下。
 
-`drive_game.py` 在角色头像上把指针来回挪几个像素，用来产生这个事件，不会点到地图。窗口坐标要用 `xwininfo` 的绝对左上角。`xdotool getwindowgeometry` 给出的位置含有窗框偏移，按它点击会点偏。点击本身用相对游戏窗口的坐标。
+`drive_game.py` 在角色头像上把指针来回挪几个像素，用来产生这个事件，不会点到地图。进游戏本身不再点击窗口。窗口坐标要用 `xwininfo` 的绝对左上角。
 
 ## 接着做时不用重复踩的点
 

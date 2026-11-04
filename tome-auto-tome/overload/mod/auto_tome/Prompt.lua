@@ -125,15 +125,105 @@ local function collect_buttons(dialog, options)
 	end
 end
 
-local function stat_nodes(dialog)
+local function as_text(value)
+	if type(value) == "string" or (type(value) == "table" and type(value.toString) == "function") then
+		return M.plain(value)
+	end
+	return nil
+end
+
+local function push_text(parts, seen, value, limit)
+	local text = as_text(value)
+	if not text then return end
+	text = text:gsub("^%s+", ""):gsub("%s+$", "")
+	if text == "" or seen[text] then return end
+	seen[text] = true
+	if #text > limit then text = text:sub(1, limit) end
+	parts[#parts + 1] = text
+end
+
+local function collect_widget_text(ui, parts, seen, visited)
+	if type(ui) ~= "table" or visited[ui] then return end
+	visited[ui] = true
+	local before = #parts
+	if type(ui.fct) ~= "function" then push_text(parts, seen, ui.text, 4000) end
+	if #parts == before and type(ui.list) == "table" then
+		for _, item in ipairs(ui.list) do
+			if type(item) == "string" then push_text(parts, seen, item, 1000)
+			elseif type(item) == "table" then push_text(parts, seen, item.text or item.name or item.rawname, 1000) end
+		end
+	end
+	if type(ui.uis) == "table" then
+		for _, entry in ipairs(ui.uis) do
+			if type(entry) == "table" then collect_widget_text(entry.ui or entry, parts, seen, visited) end
+		end
+	end
+end
+
+local function dialog_body(dialog)
+	local parts, seen, visited = {}, {}, {}
+	push_text(parts, seen, dialog.text, 4000)
+	collect_widget_text(dialog, parts, seen, visited)
+	if #parts == 0 then return nil end
+	local text = table.concat(parts, "\n")
+	if #text > 8000 then text = text:sub(1, 8000) end
+	return text
+end
+
+local function call_text(fn, ...)
+	local ok, text = pcall(fn, ...)
+	if ok then return as_text(text) end
+	return nil
+end
+
+local function stat_definition(actor, stat)
+	local defs = actor and actor.stats_def
+	if type(defs) ~= "table" then return nil end
+	if type(defs[stat]) == "table" then return defs[stat] end
+	local number = tonumber(stat)
+	if number and type(defs[number]) == "table" then return defs[number] end
+end
+
+local function node_desc(item, actor)
+	local function text_of(value)
+		if type(value) == "function" then
+			return call_text(value, item, actor) or call_text(value, actor)
+		end
+		return as_text(value)
+	end
+	local desc = text_of(item.desc or item.description)
+	if (desc == nil or desc == "") and item.talent and actor and type(actor.getTalentFromId) == "function" and type(actor.getTalentFullDescription) == "function" then
+		local talent = actor:getTalentFromId(item.talent)
+		if type(talent) == "table" then
+			desc = call_text(actor.getTalentFullDescription, actor, talent)
+		end
+	end
+	if (desc == nil or desc == "") and item.stat ~= nil then
+		local def = stat_definition(actor, item.stat)
+		if type(def) == "table" then desc = text_of(def.description or def.desc) end
+	end
+	if type(desc) ~= "string" or desc == "" then return nil end
+	if #desc > 2500 then desc = desc:sub(1, 2500) end
+	return desc
+end
+
+local function stat_nodes(dialog, actor)
 	local nodes = {}
 	local function add(item, kind, id)
 		if type(item) ~= "table" then return end
-		nodes[#nodes + 1] = {
+		local label_value = item.rawname or item.name or id
+		if type(label_value) == "function" then
+			local ok, text = pcall(label_value, item)
+			if ok and text ~= nil then label_value = text end
+		end
+		local node = {
 			node = kind .. ":" .. id,
-			label = M.plain(item.rawname or item.name or id),
+			label = M.plain(label_value),
 			item = item,
 		}
+		local desc = node_desc(item, actor)
+		if desc then node.desc = desc end
+		nodes[#nodes + 1] = node
 	end
 	for _, category in ipairs(dialog.tree_stats or {}) do
 		for _, item in ipairs(category.nodes or {}) do
@@ -168,24 +258,27 @@ function M.describe(game)
 	local name = class_name(dialog)
 	if name:find("GetQuantity", 1, true) then
 		local max_qty = dialog.c_box and dialog.c_box.max or nil
-		return {kind = "quantity", title = M.plain(dialog.title), maximum = max_qty, options = {}}
+		return {kind = "quantity", title = M.plain(dialog.title), maximum = max_qty, text = dialog_body(dialog), options = {}}
 	end
 	if name:find("GetText", 1, true) then
-		return {kind = "text", title = M.plain(dialog.title), options = {}}
+		return {kind = "text", title = M.plain(dialog.title), text = dialog_body(dialog), options = {}}
 	end
 	local options = {}
 	if levelup_dialog(dialog) then
 		push_option(options, dialog, "finish", "Finish", function() finish_levelup(dialog) end)
 		collect_buttons(dialog, options)
+		local full = stat_nodes(dialog, dialog.actor or game.player)
 		local nodes = {}
-		for _, node in ipairs(stat_nodes(dialog)) do
-			nodes[#nodes + 1] = {node = node.node, label = node.label}
+		for _, node in ipairs(full) do
+			local public = {node = node.node, label = node.label}
+			if node.desc then public.desc = node.desc end
+			nodes[#nodes + 1] = public
 		end
-		return {kind = "adjust", title = M.plain(dialog.title), options = options, nodes = nodes, _nodes = stat_nodes(dialog), _options = options}
+		return {kind = "adjust", title = M.plain(dialog.title), text = dialog_body(dialog), options = options, nodes = nodes, _nodes = full, _options = options}
 	end
 	collect_rows(dialog, options)
 	collect_buttons(dialog, options)
-	return {kind = "choose", title = M.plain(dialog.title), options = options, _options = options}
+	return {kind = "choose", title = M.plain(dialog.title), text = dialog_body(dialog), options = options, _options = options}
 end
 
 local function public_prompt(prompt)
@@ -196,6 +289,7 @@ local function public_prompt(prompt)
 	local out = {kind = prompt.kind, options = options}
 	if prompt.mode then out.mode = prompt.mode end
 	if prompt.title and prompt.title ~= "" then out.title = prompt.title end
+	if prompt.text and prompt.text ~= "" then out.text = prompt.text end
 	if prompt.maximum then out.maximum = prompt.maximum end
 	if prompt.nodes then out.nodes = prompt.nodes end
 	return out

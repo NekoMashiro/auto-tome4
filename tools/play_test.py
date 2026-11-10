@@ -270,6 +270,13 @@ class Script:
         print("door")
         self.step_toward(7, 2)
 
+        print("move_to")
+        arrived = self.act({"type": "move_to", "x": 20, "y": 2})
+        if (arrived.get("x"), arrived.get("y")) != (20, 2):
+            raise StepError("move_to did not reach 20,2", arrived)
+        if arrived.get("prompt_kind") not in (None, "none"):
+            raise StepError("move_to left a prompt", arrived)
+
         print("run")
         before = self.ready()
         ran = self.act({"type": "run", "direction": 6})

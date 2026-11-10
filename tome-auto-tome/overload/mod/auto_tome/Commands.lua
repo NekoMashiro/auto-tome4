@@ -240,6 +240,16 @@ function M.execute(game, action)
 		if not direction_ok(action.direction) then return false, "invalid_direction" end
 		game.player:runInit(action.direction)
 		return true
+	elseif kind == "move_to" then
+		-- Same walk as a left click on the map, even when the mouse-move option is off.
+		local x, y = action.x, action.y
+		if type(x) ~= "number" or type(y) ~= "number" or x % 1 ~= 0 or y % 1 ~= 0 then
+			return false, "invalid_coordinate"
+		end
+		local player = game.player
+		if type(player.mouseMove) ~= "function" then return false, "move_unavailable" end
+		player:mouseMove(x, y, true)
+		return true
 	elseif kind == "auto_explore" then
 		-- Same native explore the key runs, without the optional rest-first setting.
 		local player = game.player

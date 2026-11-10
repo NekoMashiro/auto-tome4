@@ -124,17 +124,26 @@ python3 tools/drive_game.py --wiggle-only
 | `step` | `direction` | 朝该方向走一格。那一格是敌人时改为攻击，人留在原地 |
 | `wait` | 无 | 空过一回合 |
 | `run` | `direction` | 朝该方向一直跑，直到被挡住 |
+| `move_to` | `x`，`y` | 用游戏的点地寻路走到这一格。`x`、`y` 是地图坐标，必须是整数 |
 | `auto_explore` | 无 | 用游戏自己的自动探索，直到它停下 |
 | `rest` | 无 | 休息到回复满、被打断，或游戏自己停 |
 | `change_level` | 无 | 使用脚上的楼梯。返回 `from_level`、`from_zone`、`level_move`：`up`、`down`、`zone` 或 `none`。没动是失败，不能只看日志 |
-| `quit` | 无 | 存档并退出进程。窗口开着或角色已死亡时失败 |
+| `quit` | 无 | 唯一的存档方式：存档并退出进程。窗口开着或角色已死亡时失败 |
 | `pickup` | 无 | 捡起脚下的东西。一堆物品时会变成 `choose` |
 | `switch_weapons` | 无 | 切换武器组 |
 | `open_inventory` | 无 | 打开背包，随后用 `choose` 或 `cancel` |
 | `open_levelup` | 无 | 打开加点页 |
 | `use` | `id` | 用一个技能或背包里的一件物品 |
 
+没有 `save`，也没有单独的读档命令。`{"type":"save"}` 会得到 `unknown_action`。进程开着时不会另外落盘。要存档并退出，用 `quit`：停下休息和奔跑，写完存档，把结果送回，然后退出进程。崩溃或 `SIGTERM` 不会存档。
+
 `use` 的技能 `id` 来自 `look` 的 `actor`（不带 `id` 就是自己）里的 `talents[].id`。物品先 `open_inventory`，再按窗口里的 `label` 选。技能可能接着要求 `aim`。用完如果还开着窗口，继续回答，直到 `prompt_kind` 回到 `none`。
+
+`move_to` 就是左键点在地图上。视野里没有敌人时，游戏用 A* 找路并沿路走，这条 `act` 走到停才返回。视野里有敌人，或者目标就在相邻一格，只朝那边走一格。点自己脚下等于 `wait`。找不到路时人留在原地，看返回的 `x`、`y`。出了地图的坐标会被游戏收到地图边上。
+
+```json
+{"type": "move_to", "x": 52, "y": 22}
+```
 
 没有 `open`。`{"type":"open","x":52,"y":22}` 会得到 `unknown_action`。关着的门在图上是 `+`。朝它 `step`，游戏自己开门，人通常还停在原地，下一回合再走进去。`open_inventory` 和 `open_levelup` 只打开背包和加点页。
 

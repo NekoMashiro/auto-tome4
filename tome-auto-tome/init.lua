@@ -1,7 +1,7 @@
 -- Auto ToME
 -- tome-auto-tome/init.lua
 --
--- Local bridge: twelve world commands and six answers.
+-- Local bridge: thirteen world commands and six answers.
 
 long_name = "Auto ToME"
 short_name = "auto-tome" -- must match the folder name tome-<short_name>
@@ -11,7 +11,7 @@ addon_version = {0, 2, 0}
 weight = 100
 author = { "NekoMashiro" }
 homepage = ""
-description = [[Expose Tales of Maj'Eyal as twelve world commands and six answers.
+description = [[Expose Tales of Maj'Eyal as thirteen world commands and six answers.
 A local client drives the current character through the Auto Test zone.
 ]]
 tags = { "ai", "mcp", "automation" } -- tags must immediately follow description

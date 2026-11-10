@@ -30,12 +30,13 @@ TOOLS = [
         "name": "act",
         "description": (
             "Do one world command or answer one window. command_id must be unique per attempt. "
-            "The result is an around snapshot plus status. World commands are step, wait, run, auto_explore, rest, "
+            "The result is an around snapshot plus status. World commands are step, wait, run, move_to, auto_explore, rest, "
             "change_level, pickup, switch_weapons, open_inventory, open_levelup, use, and quit. "
             "Answers are choose, aim, quantity, adjust, text, and cancel. choose takes label, the option text just returned. "
             "A world command fails with player_busy while a window or target prompt is open: read message and options. "
+            "move_to takes x and y and uses the game's click-to-walk. It paths when no enemy is visible, and takes one step toward the point when an enemy is visible. "
             "change_level adds from_level, from_zone, and level_move: up, down, zone, or none. "
-            "quit saves and exits the process. It fails if a window is open or the character is dead."
+            "There is no save command. quit saves and exits the process. It fails if a window is open or the character is dead."
         ),
         "inputSchema": {
             "type": "object",

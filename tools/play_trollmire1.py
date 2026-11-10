@@ -150,6 +150,7 @@ class Player:
         except GameError as error:
             raise StopPlay(1, "bridge rejected %s: %s" % (action.get("type"), error))
         self.last_lines = []
+        snap = self.fill_prompt(snap)
         if snap.get("in_game") and snap.get("x") is not None:
             self.floor.add((snap["x"], snap["y"]))
             self.last_lines = self.new_lines(snap)
@@ -157,11 +158,54 @@ class Player:
                 if line.strip():
                     log_line("log: %s" % line)
             self.note_terrain(self.last_lines, snap["x"], snap["y"])
+            self.note_view(snap)
             self.note_floor(snap)
             self.note_foes(snap)
         if (snap.get("life") or 0) <= 0 or any("you die" in line.lower() or "你死" in line for line in snap.get("log") or []):
             raise StopPlay(1, "died at %s,%s" % (snap.get("x"), snap.get("y")))
         return snap
+
+    def fill_prompt(self, snap):
+        if not isinstance(snap, dict) or snap.get("prompt"):
+            return snap
+        kind = snap.get("prompt_kind") or "none"
+        if kind == "none":
+            snap["prompt"] = {"kind": "none", "options": []}
+            return snap
+        try:
+            snap["prompt"] = self.client.look("prompt")
+        except GameError:
+            snap["prompt"] = {"kind": kind, "options": snap.get("options") or []}
+        return snap
+
+    def note_view(self, snap):
+        view = snap.get("view") or {}
+        rows = view.get("rows") or []
+        sight = view.get("sight") or []
+        origin_x, origin_y = view.get("x"), view.get("y")
+        if origin_x is None or origin_y is None:
+            return
+        blocked = set("#=W")
+        open_ground = set(".'<:>~%;&@")
+        for y, row in enumerate(rows):
+            fog = sight[y] if y < len(sight) else ""
+            for x, glyph in enumerate(row):
+                if x >= len(fog) or fog[x] == " ":
+                    continue
+                point = (origin_x + x, origin_y + y)
+                if glyph in blocked:
+                    self.blocked.add(point)
+                elif glyph in open_ground:
+                    self.blocked.discard(point)
+        for stair in view.get("stairs") or []:
+            point = (stair.get("x"), stair.get("y"))
+            change = stair.get("change_level")
+            if stair.get("change_zone") or (isinstance(change, (int, float)) and change < 0):
+                self.stairs_up.add(point)
+                self.stairs_down.discard(point)
+            elif isinstance(change, (int, float)) and change > 0:
+                self.stairs_down.add(point)
+                self.stairs_up.discard(point)
 
     def note_floor(self, snap):
         names = tuple(item.get("name") or "" for item in snap.get("floor") or [])
@@ -176,7 +220,7 @@ class Player:
     def note_foes(self, snap):
         foes = []
         for actor in snap.get("actors") or []:
-            if not actor.get("hostile"):
+            if not is_hostile(actor):
                 continue
             foes.append("%s@%s,%s %s/%s" % (
                 actor.get("name"), actor.get("x"), actor.get("y"), actor.get("life"), actor.get("max_life"),
@@ -236,23 +280,35 @@ class Player:
 
     def act(self, action, allow=()):
         snap = self.raw_act(action)
-        if snap.get("code") == "still_busy" or snap.get("activity"):
+        if snap.get("code") == "still_busy":
             snap = self.wait_idle(snap)
         return self.dismiss_or_decide(snap, allow)
 
     def wait_idle(self, snap):
         deadline = time.time() + 90
+        stable = 0
         while time.time() < deadline:
             kind, _options = prompt_parts(snap)
             if kind not in (None, "none"):
                 return snap
-            if not snap.get("activity") and snap.get("can_act") and snap.get("code") != "still_busy":
-                return snap
             time.sleep(0.4)
-            snap = self.client.look()
+            previous = (snap.get("x"), snap.get("y"), snap.get("life"))
+            snap = self.fill_prompt(self.client.look())
             if snap.get("x") is not None:
                 self.floor.add((snap["x"], snap["y"]))
-                self.note_terrain(self.new_lines(snap), snap["x"], snap["y"])
+                lines = self.new_lines(snap)
+                self.note_view(snap)
+                self.note_terrain(lines, snap["x"], snap["y"])
+            else:
+                lines = []
+            current = (snap.get("x"), snap.get("y"), snap.get("life"))
+            energy = snap.get("energy") or 0
+            if current == previous and not lines and energy >= 1000:
+                stable += 1
+                if stable >= 3:
+                    return snap
+            else:
+                stable = 0
         return snap
 
     def cooled_down(self):
@@ -281,13 +337,13 @@ class Player:
         if finish is None:
             self.persist()
             raise NeedDecision(snap, "levelup has no finish")
-        snap = self.act({"type": "choose", "option_id": finish["option_id"]}, allow=("choose", "adjust"))
+        snap = self.act({"type": "choose", "label": finish.get("label") or ""}, allow=("choose", "adjust"))
         yes = find_option(snap, ("yes", "是"))
         labels = {(option.get("label") or "").strip().lower() for option in (snap.get("prompt") or {}).get("options") or []}
         if yes is None or not labels <= {"yes", "no", "cancel", "是", "否", "取消"}:
             self.persist()
             raise NeedDecision(snap, "levelup confirm")
-        snap = self.act({"type": "choose", "option_id": yes["option_id"]})
+        snap = self.act({"type": "choose", "label": yes.get("label") or ""})
         self.state["levelup_done"] = True
         log_line("levelup accepted, unused stats %s" % snap.get("unused_stats"))
         return snap
@@ -304,8 +360,12 @@ class Player:
         return self.finish_levelup(opened)
 
     def talent(self, snap, part):
-        for talent in snap.get("talents") or []:
-            if part in (talent.get("id") or ""):
+        try:
+            sheet = self.client.look("actor")
+        except GameError:
+            return None
+        for talent in sheet.get("talents") or []:
+            if part in (talent.get("id") or "") and not talent.get("cooldown"):
                 return talent["id"]
         return None
 
@@ -316,7 +376,7 @@ class Player:
         return updated, updated.get("status") != "failed"
 
     def fight(self, snap):
-        hostiles = [actor for actor in snap.get("actors") or [] if actor.get("hostile")]
+        hostiles = [actor for actor in snap.get("actors") or [] if is_hostile(actor)]
         if not hostiles:
             return None
         x, y = snap["x"], snap["y"]
@@ -331,7 +391,7 @@ class Player:
                 return updated
             self.state["heal_retry"] = turn + 8
             snap = updated
-            hostiles = [actor for actor in snap.get("actors") or [] if actor.get("hostile")]
+            hostiles = [actor for actor in snap.get("actors") or [] if is_hostile(actor)]
             if not hostiles:
                 return snap
         adjacent = [actor for actor in hostiles if chebyshev(x, y, actor["x"], actor["y"]) <= 1]
@@ -381,7 +441,7 @@ class Player:
             self.soft.pop((tx, ty), None)
             return updated
         if attack:
-            names = ", ".join(actor.get("name") or "?" for actor in updated.get("actors") or [] if actor.get("hostile"))
+            names = ", ".join(actor.get("name") or "?" for actor in updated.get("actors") or [] if is_hostile(actor))
             log_line("attack %s,%s still %s/%s foes=%s" % (tx, ty, round(updated.get("life") or 0, 1), round(updated.get("max_life") or 0, 1), names))
             return updated
         lines = " ".join(self.last_lines).lower()
@@ -455,7 +515,7 @@ class Player:
         maximum = snap.get("max_life") or 1
         if life >= maximum * 0.85:
             return snap
-        if any(actor.get("hostile") for actor in snap.get("actors") or []):
+        if any(is_hostile(actor) for actor in snap.get("actors") or []):
             return snap
         log_line("rest at %s/%s" % (round(life, 1), round(maximum, 1)))
         updated = self.act({"type": "rest"})
@@ -465,7 +525,7 @@ class Player:
     def play(self, snap, note_initial):
         snap = self.dismiss_or_decide(snap, allow=("aim",))
         if prompt_parts(snap)[0] == "aim":
-            foes = [actor for actor in snap.get("actors") or [] if actor.get("hostile")]
+            foes = [actor for actor in snap.get("actors") or [] if is_hostile(actor)]
             if foes:
                 target = min(foes, key=lambda actor: chebyshev(snap["x"], snap["y"], actor["x"], actor["y"]))
                 direction = facing(snap["x"], snap["y"], target["x"], target["y"])
@@ -481,7 +541,11 @@ class Player:
         if note_initial:
             self.note_terrain(snap.get("log") or [], snap["x"], snap["y"])
         self.state["prev_log"] = snap.get("log") or []
-        talents = ", ".join(talent.get("id", "") for talent in snap.get("talents") or [])
+        try:
+            sheet = self.client.look("actor")
+        except GameError:
+            sheet = {}
+        talents = ", ".join(talent.get("id", "") for talent in sheet.get("talents") or [])
         log_line(
             "start %s,%s life %s/%s char_level=%s hand=%s talents=%s"
             % (snap.get("x"), snap.get("y"), round(snap.get("life") or 0, 1), round(snap.get("max_life") or 0, 1), snap.get("character_level"), snap.get("mainhand"), talents)
@@ -501,7 +565,7 @@ class Player:
                 else:
                     snap = self.explore(snap)
             if self.state["turn"] % 25 == 0:
-                hostiles = [actor.get("name") for actor in snap.get("actors") or [] if actor.get("hostile")]
+                hostiles = [actor.get("name") for actor in snap.get("actors") or [] if is_hostile(actor)]
                 log_line(
                     "t=%s pos=%s,%s life=%s/%s char_level=%s floor=%s down=%s foes=%s"
                     % (
@@ -522,7 +586,7 @@ class Player:
             self.block_attempt()
             return self.act({"type": "cancel"})
         if option_id:
-            chosen = self.act({"type": "choose", "option_id": option_id})
+            chosen = self.act({"type": "choose", "label": option_id})
             label = ""
             return chosen if label else chosen
         if answer == "no":
@@ -531,13 +595,13 @@ class Player:
                 self.persist()
                 raise NeedDecision(snap, "no matching refuse button")
             self.block_attempt()
-            return self.act({"type": "choose", "option_id": option["option_id"]})
+            return self.act({"type": "choose", "label": option.get("label") or ""})
         if answer == "yes":
             option = find_option(snap, ("yes", "是", "accept", "确定"))
             if option is None:
                 self.persist()
                 raise NeedDecision(snap, "no matching accept button")
-            return self.act({"type": "choose", "option_id": option["option_id"]})
+            return self.act({"type": "choose", "label": option.get("label") or ""})
         return snap
 
     def block_attempt(self):
@@ -551,9 +615,16 @@ class Player:
         log_line("refused %s,%s" % point)
 
 
+def is_hostile(actor):
+    if "relation" in actor:
+        return (actor.get("relation") or 0) < 0
+    return bool(actor.get("hostile"))
+
+
 def prompt_parts(snap):
     prompt = snap.get("prompt") or {}
-    return prompt.get("kind"), prompt.get("options") or []
+    kind = prompt.get("kind") or snap.get("prompt_kind")
+    return kind, prompt.get("options") or snap.get("options") or []
 
 
 def find_option(snap, names):
@@ -625,7 +696,7 @@ def describe(snap, reason):
             lines.append("  %s" % node.get("desc"))
     foes = []
     for actor in snap.get("actors") or []:
-        if actor.get("hostile"):
+        if is_hostile(actor):
             foes.append("%s@%s,%s %s/%s" % (actor.get("name"), actor.get("x"), actor.get("y"), actor.get("life"), actor.get("max_life")))
     lines.append("foes: %s" % "; ".join(foes))
     lines.append("log:")
@@ -686,7 +757,7 @@ def wait_for_window(client):
             client.close()
             time.sleep(0.4)
             continue
-        kind = (last.get("prompt") or {}).get("kind")
+        kind = last.get("prompt_kind") or (last.get("prompt") or {}).get("kind")
         if last.get("in_game") and kind not in (None, "none"):
             return last
         time.sleep(0.3)

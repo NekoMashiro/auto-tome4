@@ -16,9 +16,9 @@ class FakeGame:
     def __init__(self):
         self.calls = []
 
-    def look(self):
-        self.calls.append(("look", None))
-        return {"in_game": True, "prompt": {"kind": "none", "options": []}}
+    def look(self, kind=None, actor_id=None):
+        self.calls.append(("look", kind, actor_id))
+        return {"in_game": True, "prompt_kind": "none", "prompt": {"kind": "none", "options": []}}
 
     def act(self, action, command_id):
         self.calls.append(("act", command_id, action))

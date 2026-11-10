@@ -197,10 +197,12 @@ def look_once(timeout):
 
 
 def playable(snap):
-    if not snap or not snap.get("in_game") or not snap.get("can_act") or snap.get("activity"):
+    if not snap or not snap.get("in_game"):
         return False
-    prompt = (snap.get("prompt") or {}).get("kind")
-    return prompt in (None, "none")
+    kind = snap.get("prompt_kind")
+    if kind is None:
+        kind = (snap.get("prompt") or {}).get("kind")
+    return kind in (None, "none")
 
 
 def wait_in_game(timeout):

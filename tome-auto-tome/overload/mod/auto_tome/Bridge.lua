@@ -39,14 +39,44 @@ local function fail(code, message)
 end
 
 local function result_of(game, command_id, status, code)
-	local snap = Observe.snapshot(game)
+	local snap = Observe.around(game)
 	snap.status = status
 	snap.command_id = command_id
 	if code then snap.code = code end
-	if status == "completed" and snap.prompt and snap.prompt.kind and snap.prompt.kind ~= "none" then
+	if status == "completed" and snap.prompt_kind and snap.prompt_kind ~= "none" then
 		snap.status = "awaiting_input"
 	end
 	return snap
+end
+
+local function annotate_level(snap, game, extra)
+	if type(extra) ~= "table" or not extra.track_level then return end
+	local zone = game.zone and Prompt.plain(game.zone.short_name or game.zone.name or "") or ""
+	local level = game.level and game.level.level or 0
+	snap.from_zone = extra.zone
+	snap.from_level = extra.level
+	if zone ~= (extra.zone or "") then snap.level_move = "zone"
+	elseif level > (extra.level or 0) then snap.level_move = "down"
+	elseif level < (extra.level or 0) then snap.level_move = "up"
+	else snap.level_move = "none" end
+	if snap.level_move == "none" and snap.status == "completed" and (snap.prompt_kind or "none") == "none" then
+		snap.status = "failed"
+		snap.code = "level_unchanged"
+		snap.message = "The level did not change."
+	elseif snap.code == "level_unchanged" and not snap.message then
+		snap.message = "The level did not change."
+	end
+end
+
+local function annotate_failure(snap, game, code)
+	if code == "player_busy" then
+		local message, options = Prompt.busy_reply(game)
+		snap.message = message
+		snap.options = Json.array(options)
+	elseif code == "unknown_option" or code == "ambiguous_option" then
+		snap.options = Json.array(Prompt.option_labels(game))
+		snap.message = code == "ambiguous_option" and "More than one option has that label." or "No option has that label."
+	end
 end
 
 local function handle(game, request)
@@ -54,7 +84,12 @@ local function handle(game, request)
 		return false, fail("invalid_request", "Expected an object with op.")
 	end
 	if request.op == "look" then
-		return true, Observe.snapshot(game)
+		local kind = request.kind or "around"
+		if kind == "around" then return true, Observe.around(game) end
+		if kind == "map" then return true, Observe.map(game) end
+		if kind == "prompt" then return true, Observe.prompt(game) end
+		if kind == "actor" then return true, Observe.actor(game, request.id) end
+		return false, fail("unknown_look", "look kind must be around, map, actor, or prompt.")
 	end
 	if request.op == "status" then
 		local id = request.command_id
@@ -73,30 +108,49 @@ local function handle(game, request)
 		remember(command_id, bad)
 		return true, bad
 	end
-	local ran, ok, err = pcall(function()
+	local ran, ok, err, extra = pcall(function()
 		if ANSWERS[action.type] then
 			if not Prompt.blocking(game) and action.type ~= "cancel" then return false, "nothing_to_answer" end
 			return Prompt.apply(game, action)
 		end
 		return Commands.execute(game, action)
 	end)
-	if not ran then ok, err = false, tostring(ok) end
+	if not ran then ok, err, extra = false, tostring(ok), nil end
+	if ok and err == "quit" then
+		local snap = result_of(game, command_id, "completed")
+		remember(command_id, snap)
+		state.exit_after = true
+		return true, snap
+	end
 	if not ok then
 		local snap = result_of(game, command_id, "failed", err or "failed")
+		annotate_level(snap, game, extra)
+		annotate_failure(snap, game, err)
 		remember(command_id, snap)
 		return true, snap
 	end
 	-- The scheduler runs after this poll. Hold the reply so one act covers the whole action.
-	state.pending = {request_id = request.id, command_id = command_id, t0 = os.time()}
+	state.pending = {request_id = request.id, command_id = command_id, t0 = os.time(), extra = extra}
 	return true, nil
 end
 
 local function finish_pending(game, status, code)
 	local pending = state.pending
 	local snap = result_of(game, pending.command_id, status, code)
+	annotate_level(snap, game, pending.extra)
 	remember(pending.command_id, snap)
 	reply(state.client, pending.request_id, true, snap)
 	state.pending = nil
+end
+
+local function exit_game(game)
+	local ok, GameTurnBased = pcall(require, "engine.GameTurnBased")
+	if ok and type(GameTurnBased.onExit) == "function" then
+		GameTurnBased.onExit(game)
+		return
+	end
+	if core and core.steam then core.steam.exit() end
+	if core and core.game and core.game.exit_engine then core.game.exit_engine() end
 end
 
 local function ensure(game)
@@ -182,6 +236,10 @@ function M.poll(game)
 		return finish()
 	end
 	if body ~= nil then reply(state.client, request.id, success, body) end
+	if state.exit_after then
+		state.exit_after = nil
+		pcall(exit_game, game)
+	end
 	return finish()
 end
 

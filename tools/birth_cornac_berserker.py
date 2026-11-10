@@ -98,7 +98,14 @@ def look_once():
     client = GameClient(timeout=8)
     try:
         client.connect()
-        return client.look()
+        snap = client.look()
+        if snap and snap.get("in_game"):
+            if snap.get("prompt_kind") not in (None, "none"):
+                snap["prompt"] = client.look("prompt")
+            sheet = client.look("actor")
+            if isinstance(sheet, dict):
+                snap["talents"] = sheet.get("talents") or []
+        return snap
     except (OSError, TimeoutError, GameError):
         return None
     finally:
@@ -109,7 +116,8 @@ def interesting(snap):
     if not snap or not snap.get("in_game"):
         return False
     prompt = snap.get("prompt") or {}
-    return prompt.get("kind") not in (None, "none")
+    kind = snap.get("prompt_kind") or prompt.get("kind")
+    return kind not in (None, "none")
 
 
 def summarize(snap):

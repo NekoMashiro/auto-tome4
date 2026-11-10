@@ -48,8 +48,13 @@ class GameClient:
             raise GameError(message.get("error"))
         return message.get("result")
 
-    def look(self):
-        return self.call("look")
+    def look(self, kind=None, actor_id=None):
+        fields = {}
+        if kind:
+            fields["kind"] = kind
+        if actor_id:
+            fields["id"] = actor_id
+        return self.call("look", **fields)
 
     def act(self, action, command_id):
         return self.call("act", command_id=command_id, action=action)

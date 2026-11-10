@@ -26,7 +26,9 @@ local function top_dialog(game)
 	if type(dialogs) ~= "table" then return nil end
 	for i = #dialogs, 1, -1 do
 		local dialog = dialogs[i]
-		if type(dialog) == "table" and not dialog.hidden and not dialog.hide then return dialog end
+		-- Dialog skips drawing when __hidden is set. Running uses that for its stop notice.
+		-- __showup is only the pop-in animation; a normal window has it too and still needs an answer.
+		if type(dialog) == "table" and not dialog.__hidden and not dialog.hidden and not dialog.hide then return dialog end
 	end
 end
 
@@ -37,7 +39,7 @@ function M.blocking(game)
 	return top_dialog(game) ~= nil
 end
 
--- The rest popup is the game's own "press Enter to stop" notice. It is not a question for the AI.
+-- Rest and run each register a "press Enter to stop" notice. Neither is a question for the AI.
 function M.needs_answer(game)
 	if not game or not game.player then return false end
 	if game.target_co then return true end
@@ -45,6 +47,8 @@ function M.needs_answer(game)
 	if not dialog then return false end
 	local resting = game.player.resting
 	if type(resting) == "table" and resting.dialog == dialog then return false end
+	local running = game.player.running
+	if type(running) == "table" and running.dialog == dialog then return false end
 	return true
 end
 
@@ -52,6 +56,7 @@ end
 function M.settled(game)
 	local player = game and game.player
 	if not player or not player.x or player.dead then return "completed" end
+	-- A real window opened during the run still has to be answered. The run itself does not.
 	if M.needs_answer(game) then return "awaiting_input" end
 	if player.resting or player.running then return nil end
 	local enough = false
@@ -132,13 +137,12 @@ local function as_text(value)
 	return nil
 end
 
-local function push_text(parts, seen, value, limit)
+local function push_text(parts, seen, value)
 	local text = as_text(value)
 	if not text then return end
 	text = text:gsub("^%s+", ""):gsub("%s+$", "")
 	if text == "" or seen[text] then return end
 	seen[text] = true
-	if #text > limit then text = text:sub(1, limit) end
 	parts[#parts + 1] = text
 end
 
@@ -146,11 +150,11 @@ local function collect_widget_text(ui, parts, seen, visited)
 	if type(ui) ~= "table" or visited[ui] then return end
 	visited[ui] = true
 	local before = #parts
-	if type(ui.fct) ~= "function" then push_text(parts, seen, ui.text, 4000) end
+	if type(ui.fct) ~= "function" then push_text(parts, seen, ui.text) end
 	if #parts == before and type(ui.list) == "table" then
 		for _, item in ipairs(ui.list) do
-			if type(item) == "string" then push_text(parts, seen, item, 1000)
-			elseif type(item) == "table" then push_text(parts, seen, item.text or item.name or item.rawname, 1000) end
+			if type(item) == "string" then push_text(parts, seen, item)
+			elseif type(item) == "table" then push_text(parts, seen, item.text or item.name or item.rawname) end
 		end
 	end
 	if type(ui.uis) == "table" then
@@ -162,12 +166,10 @@ end
 
 local function dialog_body(dialog)
 	local parts, seen, visited = {}, {}, {}
-	push_text(parts, seen, dialog.text, 4000)
+	push_text(parts, seen, dialog.text)
 	collect_widget_text(dialog, parts, seen, visited)
 	if #parts == 0 then return nil end
-	local text = table.concat(parts, "\n")
-	if #text > 8000 then text = text:sub(1, 8000) end
-	return text
+	return table.concat(parts, "\n")
 end
 
 local function call_text(fn, ...)
@@ -203,7 +205,6 @@ local function node_desc(item, actor)
 		if type(def) == "table" then desc = text_of(def.description or def.desc) end
 	end
 	if type(desc) ~= "string" or desc == "" then return nil end
-	if #desc > 2500 then desc = desc:sub(1, 2500) end
 	return desc
 end
 
@@ -299,6 +300,38 @@ function M.public(game)
 	return public_prompt(M.describe(game))
 end
 
+function M.option_labels(game)
+	local prompt = M.describe(game)
+	local options = {}
+	for _, option in ipairs(prompt.options or {}) do
+		options[#options + 1] = {label = option.label}
+	end
+	return options
+end
+
+-- Sentence for a world command that lost to an open window. Long lists stay in options.
+function M.busy_reply(game)
+	local player = game and game.player
+	if player and player.resting then return "The character is resting.", {} end
+	if player and player.running then return "The character is running.", {} end
+	local prompt = M.describe(game)
+	local options = {}
+	for _, option in ipairs(prompt.options or {}) do
+		options[#options + 1] = {label = option.label}
+	end
+	if prompt.kind == "aim" then
+		return "A target prompt is open. Answer it with aim or cancel before a world command.", options
+	end
+	local title = prompt.title or ""
+	local text = prompt.text or ""
+	local sentence = "A window is open"
+	if title ~= "" then sentence = sentence .. ": " .. title end
+	sentence = sentence .. "."
+	if text ~= "" then sentence = sentence .. " " .. text end
+	sentence = sentence .. " Choices are in options."
+	return sentence, options
+end
+
 local function find_option(prompt, option_id)
 	for _, option in ipairs(prompt._options or prompt.options or {}) do
 		if option.option_id == option_id then return option end
@@ -340,6 +373,18 @@ function M.apply(game, action)
 	end
 	if kind == "choose" then
 		if prompt.kind ~= "choose" and prompt.kind ~= "adjust" then return false, "prompt_mismatch" end
+		local label = action.label
+		if type(label) == "string" and label ~= "" then
+			local matches = {}
+			for _, option in ipairs(prompt._options or prompt.options or {}) do
+				if option.label == label then matches[#matches + 1] = option end
+			end
+			if #matches ~= 1 or type(matches[1].apply) ~= "function" then
+				return false, #matches > 1 and "ambiguous_option" or "unknown_option"
+			end
+			matches[1].apply()
+			return true
+		end
 		local option = find_option(prompt, action.option_id)
 		if not option or type(option.apply) ~= "function" then return false, "unknown_option" end
 		option.apply()

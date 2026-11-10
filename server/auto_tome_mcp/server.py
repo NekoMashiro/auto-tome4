@@ -10,12 +10,33 @@ PROTOCOL_VERSION = "2024-11-05"
 TOOLS = [
     {
         "name": "look",
-        "description": "Read the current character, the visible tile, and the open prompt.",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "description": (
+            "Read the game without changing it. kind defaults to around: a 41x41 view centered on the character, "
+            "visible actors, items, resources, and every log line since the previous around. "
+            "map is the whole level with the same fog and no log. Its x and y are the character; view.x and view.y are the top-left of that level, which is 0, 0. actor reads one visible actor; omit id to read yourself. "
+            "prompt reads the open window. map, actor, and prompt do not include or advance the log. "
+            "Sight marks are S seen, R remembered, and space unseen. Stair cells also list change_level."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["around", "map", "actor", "prompt"]},
+                "id": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
     },
     {
         "name": "act",
-        "description": "Send one world command or one answer. command_id must be unique per attempt.",
+        "description": (
+            "Do one world command or answer one window. command_id must be unique per attempt. "
+            "The result is an around snapshot plus status. World commands are step, wait, run, auto_explore, rest, "
+            "change_level, pickup, switch_weapons, open_inventory, open_levelup, use, and quit. "
+            "Answers are choose, aim, quantity, adjust, text, and cancel. choose takes label, the option text just returned. "
+            "A world command fails with player_busy while a window or target prompt is open: read message and options. "
+            "change_level adds from_level, from_zone, and level_move: up, down, zone, or none. "
+            "quit saves and exits the process. It fails if a window is open or the character is dead."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -109,7 +130,7 @@ def handle_message(message, game):
     arguments = params.get("arguments") or {}
     try:
         if name == "look":
-            result = game.look()
+            result = game.look(arguments.get("kind"), arguments.get("id"))
         elif name == "act":
             result = game.act(arguments.get("action"), arguments.get("command_id"))
         elif name == "status":

@@ -25,7 +25,7 @@ SDL_VIDEODRIVER=x11
 
 不要打开游戏里的 “禁用所有网络连接”。luasocket 会被卸掉，`127.0.0.1:9741` 就没有了。
 
-角色空闲时引擎不跑帧。`python3 tools/drive_game.py --no-play` 会完成下面的启动，并一直在头像上移动指针。游戏已经开着时，用 `--wiggle-only`。
+角色空闲时引擎堵在 `SDL_WaitEvent`，主线程不跑帧。桥只在 `Game:tick` 里读端口，没有鼠标或键盘事件时 `look` 会一直挂到超时。`python3 tools/drive_game.py --no-play` 会完成下面的启动，并一直在头像上移动指针。游戏已经开着时，用 `--wiggle-only`。指针只在头像上晃，不点地图。
 
 ## 参数是前缀
 
@@ -43,6 +43,16 @@ SDL_VIDEODRIVER=x11
 ```bash
 ./t-engine -Mtome -u存档短名
 ```
+
+正常退出用世界命令 `quit`。它停下休息和奔跑，存档，等写完，把结果送回，然后退出进程。窗口还开着，或角色已经死亡时，这条命令失败。不要用游戏里的退出键，那个键存档后回到主菜单，进程还在，桥会断。崩溃或 `SIGTERM` 不会存档。
+
+`quit` 退出之后，在显示游戏的机器上再执行：
+
+```bash
+python3 tools/drive_game.py --save 存档短名 --no-play
+```
+
+现在的科纳克狂战士短名是 `CornacBerserker`，对应 `./t-engine -Mtome -uCornacBerserker`。进程还开着时运行这条命令会先发 `SIGTERM`，这一下不存档。
 
 新游戏还需要 `-E` 里的 `auto_quickbirth`。
 
@@ -120,7 +130,7 @@ descriptors = {
 
 ## 启动之后
 
-`look` 返回 `in_game: true` 并且 `zone` 是 `trollmire` 时，角色已经在巨魔沼泽。`level` 是地图层数。出生加点页还开着时，`can_act` 为假，`prompt.kind` 为 `adjust`。
+`look` 返回 `in_game: true` 并且 `zone` 是 `trollmire` 时，角色已经在巨魔沼泽。`level` 是地图层数。出生加点页还开着时，`prompt_kind` 为 `adjust`。
 
 指针没有在动时，下一条 `look` 会一直停着。先确认 `drive_game.py` 的指针循环还在。
 
@@ -134,12 +144,12 @@ descriptors = {
   "zone": "trollmire",
   "level": 1,
   "character_level": 1,
-  "can_act": false,
+  "prompt_kind": "adjust",
   "prompt": {"kind": "adjust", "title": "Levelup: CornacBerserker, level 1"}
 }
 ```
 
-`prompt.nodes` 里有力量、敏捷等属性和已经学会的技能。按 [操作](agent-play.md) 里的加点示例处理，再 `cancel` 掉欢迎词。欢迎词关掉之后，`can_act` 变为真，`prompt.kind` 变为 `none`。
+`prompt.nodes` 里有力量、敏捷等属性和已经学会的技能。按 [操作](agent-play.md) 里的加点示例处理，再 `cancel` 掉欢迎词。欢迎词关掉之后，`prompt_kind` 变为 `none`。
 
 跳过加点页和欢迎词的那条命令，第一次能行动的 `look` 类似：
 
@@ -150,9 +160,8 @@ descriptors = {
   "zone_name": "Trollmire",
   "level": 1,
   "character_level": 1,
-  "can_act": true,
   "mainhand": "iron greatsword (18-29 power, 1 apr)",
-  "prompt": {"kind": "none", "options": []}
+  "prompt_kind": "none"
 }
 ```
 

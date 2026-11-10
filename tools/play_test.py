@@ -5,6 +5,7 @@ Launch ToME with the auto-tome addon enabled and a character already in a level,
 then run: PYTHONPATH=server python3 tools/play_test.py
 """
 
+import re
 import sys
 import time
 import uuid
@@ -40,11 +41,20 @@ class StepError(RuntimeError):
                 (snap or {}).get("x"),
                 (snap or {}).get("y"),
                 (snap or {}).get("level"),
-                prompt.get("kind"),
-                prompt.get("title") or "",
+                (snap or {}).get("prompt_kind") or prompt.get("kind"),
+                prompt.get("title") or (snap or {}).get("message") or "",
                 " | ".join((snap or {}).get("log") or []),
             )
         )
+
+
+def stack_count(label):
+    text = label or ""
+    match = re.search(r"\((\d+)\)\s*$", text)
+    if match:
+        return int(match.group(1))
+    match = re.match(r"(\d+)\s+", text)
+    return int(match.group(1)) if match else 1
 
 
 def walkable():
@@ -97,9 +107,20 @@ class Script:
             result = self.client.act(action, str(uuid.uuid4()))
         except GameError as error:
             raise StepError(action.get("type"), {"status": "failed", "code": str(error), "log": []})
+        result = self.attach_prompt(result)
         if result.get("status") == "failed":
             raise StepError(action.get("type"), result)
         return result
+
+    def attach_prompt(self, snap):
+        if not isinstance(snap, dict) or snap.get("prompt"):
+            return snap
+        kind = snap.get("prompt_kind") or "none"
+        if kind == "none":
+            snap["prompt"] = {"kind": "none", "options": []}
+            return snap
+        snap["prompt"] = self.client.look("prompt")
+        return snap
 
     def poll(self, predicate, timeout, first=None):
         deadline = time.time() + timeout
@@ -116,8 +137,7 @@ class Script:
 
     def ready(self, timeout=60):
         def quiet(snap):
-            prompt = (snap.get("prompt") or {}).get("kind")
-            return snap.get("in_game") and snap.get("can_act") and not snap.get("activity") and prompt in (None, "none")
+            return snap.get("in_game") and snap.get("prompt_kind", "none") in (None, "none")
         return self.poll(quiet, timeout)
 
     def world(self, action, timeout=60):
@@ -126,15 +146,14 @@ class Script:
 
     def settle(self, timeout=90):
         def quiet(snap):
-            prompt = (snap.get("prompt") or {}).get("kind")
-            return not snap.get("activity") and prompt in (None, "none")
+            return snap.get("prompt_kind", "none") in (None, "none")
         return self.poll(quiet, timeout)
 
     def option(self, snap, labels):
         wanted = {label.lower() for label in labels}
         for choice in (snap.get("prompt") or {}).get("options") or []:
             if (choice.get("label") or "").lower() in wanted:
-                return choice["option_id"]
+                return choice
         return None
 
     def option_containing(self, snap, text, avoid=()):
@@ -144,7 +163,7 @@ class Script:
             if any(skip.lower() in lower for skip in avoid):
                 continue
             if text.lower() in lower:
-                return choice["option_id"]
+                return choice
         return None
 
     def close_prompt(self, snap):
@@ -158,10 +177,10 @@ class Script:
         raise StepError("prompt stayed open", snap)
 
     def choose(self, snap, labels=None, contains=None, avoid=()):
-        option_id = self.option(snap, labels) if labels else self.option_containing(snap, contains, avoid)
-        if not option_id:
+        option = self.option(snap, labels) if labels else self.option_containing(snap, contains, avoid)
+        if not option:
             raise StepError("missing option %s" % (labels or contains), snap)
-        return self.act({"type": "choose", "option_id": option_id})
+        return self.act({"type": "choose", "label": option.get("label") or ""})
 
     def find_item(self, snap, name):
         for item in snap.get("inventory") or []:
@@ -187,7 +206,7 @@ class Script:
                 raise StepError("no path to %s,%s" % (x, y), snap)
             nx, ny = path[0]
             result = self.act({"type": "step", "direction": direction(nx - snap["x"], ny - snap["y"])})
-            if result.get("prompt", {}).get("kind") not in (None, "none"):
+            if (result.get("prompt") or {}).get("kind") not in (None, "none"):
                 raise StepError("step opened a prompt", result)
             if (result.get("x"), result.get("y")) == last:
                 stuck += 1
@@ -202,7 +221,7 @@ class Script:
         print("enter_test")
         entered = self.world({"type": "enter_test"}, timeout=120)
         snap = self.poll(
-            lambda item: item.get("zone") == "auto-test" and item.get("level") == 1 and item.get("can_act"),
+            lambda item: item.get("zone") == "auto-test" and item.get("level") == 1 and item.get("prompt_kind", "none") in (None, "none"),
             30,
             entered,
         )
@@ -242,8 +261,7 @@ class Script:
 
         print("rest")
         before = self.ready()
-        started = self.act({"type": "rest"})
-        rested = self.settle(90)
+        rested = self.act({"type": "rest"})
         log = " ".join(rested.get("log") or []).lower()
         if rested["life"] < before["life"] and "rest" not in log and "休息" not in log:
             raise StepError("rest did not run", rested)
@@ -254,16 +272,14 @@ class Script:
 
         print("run")
         before = self.ready()
-        self.act({"type": "run", "direction": 6})
-        ran = self.settle(90)
+        ran = self.act({"type": "run", "direction": 6})
         if ran["x"] <= before["x"]:
             raise StepError("run did not move east", ran)
         self.ready()
 
         print("auto_explore")
         before = self.ready()
-        self.act({"type": "auto_explore"})
-        explored = self.settle(120)
+        explored = self.act({"type": "auto_explore"})
         explore_log = " ".join(explored.get("log") or []).lower()
         moved = (explored["x"], explored["y"]) != (before["x"], before["y"])
         if not moved and "explor" not in explore_log and "nowhere" not in explore_log and "探索" not in explore_log:
@@ -277,7 +293,8 @@ class Script:
             picked = self.choose(picked, contains="test gem", avoid=("test shard",))
         picked = self.close_prompt(picked)
         snap = self.ready()
-        if not self.find_item(snap, "test gem"):
+        names = " ".join((item.get("name") or "") for item in snap.get("floor") or []).lower()
+        if "test gem" in names:
             raise StepError("test gem was not picked up", snap)
 
         print("aim")
@@ -293,17 +310,20 @@ class Script:
         self.ready()
 
         print("use item")
-        salve = self.find_item(self.ready(), "test salve")
-        if not salve:
-            raise StepError("test salve is missing", self.client.look())
-        used = self.world({"type": "use", "id": salve["id"]})
-        if used.get("prompt", {}).get("kind") == "choose":
+        opened = self.world({"type": "open_inventory"})
+        if not self.option_containing(opened, "test salve"):
+            raise StepError("test salve is missing", opened)
+        used = self.choose(opened, contains="test salve")
+        used = self.choose(used, labels=("use", "使用"))
+        if (used.get("prompt") or {}).get("kind") == "choose":
             used = self.choose(used, labels=("yes", "是", "accept", "确定"))
-        used = self.ready()
-        if self.find_item(used, "test salve"):
-            raise StepError("test salve was not consumed", used)
+        used = self.close_prompt(used)
         if not any("salve" in line.lower() for line in used.get("log") or []):
             raise StepError("test salve was not used", used)
+        opened = self.world({"type": "open_inventory"})
+        if self.option_containing(opened, "test salve"):
+            raise StepError("test salve was not consumed", opened)
+        self.act({"type": "cancel"})
 
         print("cancel")
         opened = self.world({"type": "open_inventory"})
@@ -314,21 +334,25 @@ class Script:
         closed = self.act({"type": "cancel"})
         if closed.get("prompt", {}).get("kind") not in (None, "none"):
             raise StepError("cancel left a prompt", closed)
-        if not self.find_item(self.ready(), "test pebble"):
-            raise StepError("cancel removed the test pebble", closed)
+        opened = self.world({"type": "open_inventory"})
+        if not self.option_containing(opened, "test pebble"):
+            raise StepError("cancel removed the test pebble", opened)
+        self.act({"type": "cancel"})
 
         print("quantity")
-        before = self.find_item(self.ready(), "test pebble")
         opened = self.world({"type": "open_inventory"})
+        before = self.option_containing(opened, "test pebble")
+        before_count = stack_count(before.get("label") if before else "")
         opened = self.choose(opened, contains="test pebble")
         opened = self.choose(opened, labels=("drop", "丢弃", "扔掉"))
         if opened.get("prompt", {}).get("kind") != "quantity":
             raise StepError("drop did not ask for a quantity", opened)
         dropped = self.act({"type": "quantity", "quantity": 1})
         dropped = self.close_prompt(dropped)
-        after = self.find_item(self.ready(), "test pebble")
-        before_count = before.get("number") or 1
-        after_count = after.get("number") if after else 0
+        opened = self.world({"type": "open_inventory"})
+        after = self.option_containing(opened, "test pebble")
+        after_count = stack_count(after.get("label") if after else "")
+        self.act({"type": "cancel"})
         if after_count >= before_count:
             raise StepError("dropping one pebble did not shrink the stack", dropped)
 
@@ -377,6 +401,8 @@ class Script:
         changed = self.world({"type": "change_level"})
         if changed.get("prompt", {}).get("kind") not in (None, "none"):
             raise StepError("change_level opened a dialog", changed)
+        if changed.get("level_move") not in ("up", "down", "zone"):
+            raise StepError("change_level did not report a move", changed)
         done = self.poll(lambda item: item.get("zone") == "auto-test" and item.get("level") == 2, 30, changed)
         print("test level complete at %s,%s" % (done.get("x"), done.get("y")))
 

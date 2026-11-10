@@ -1,22 +1,19 @@
--- Eleven world commands, each one the game's own key or the hotkey it remembers.
+-- World commands call the game directly. They do not press the key the player would press.
 local Prompt = require "mod.auto_tome.Prompt"
 local M = {}
 
-local RUN_KEYS = {
-	[1] = "RUN_LEFT_DOWN", [2] = "RUN_DOWN", [3] = "RUN_RIGHT_DOWN",
-	[4] = "RUN_LEFT", [6] = "RUN_RIGHT",
-	[7] = "RUN_LEFT_UP", [8] = "RUN_UP", [9] = "RUN_RIGHT_UP",
-}
+local DIRECTIONS = {[1] = true, [2] = true, [3] = true, [4] = true, [6] = true, [7] = true, [8] = true, [9] = true}
 
 local function direction_ok(direction)
-	return RUN_KEYS[direction] ~= nil
+	return DIRECTIONS[direction] == true
 end
 
-local function press(game, name)
-	local fn = game.key and game.key.virtuals and game.key.virtuals[name]
-	if type(fn) ~= "function" then return false, "key_unavailable" end
-	fn()
-	return true
+local function level_before(game)
+	return {
+		track_level = true,
+		zone = game.zone and (game.zone.short_name or game.zone.name or "") or "",
+		level = game.level and game.level.level or 0,
+	}
 end
 
 local function find_item(player, item_id)
@@ -229,6 +226,7 @@ function M.execute(game, action)
 	if type(action) ~= "table" or type(action.type) ~= "string" then return false, "invalid_action" end
 	local kind = action.type
 	if kind == "enter_test" then return M.enter_test(game) end
+	if kind == "quit" then return M.quit(game) end
 	if not game.player or not game.level then return false, "no_player" end
 	if Prompt.blocking(game) then return false, "player_busy" end
 	if kind == "step" then
@@ -240,7 +238,8 @@ function M.execute(game, action)
 		return true
 	elseif kind == "run" then
 		if not direction_ok(action.direction) then return false, "invalid_direction" end
-		return press(game, RUN_KEYS[action.direction])
+		game.player:runInit(action.direction)
+		return true
 	elseif kind == "auto_explore" then
 		-- Same native explore the key runs, without the optional rest-first setting.
 		local player = game.player
@@ -254,21 +253,106 @@ function M.execute(game, action)
 		while player:enoughEnergy() and player:runStep() do end
 		return true
 	elseif kind == "rest" then
-		return press(game, "REST")
+		game.player:restInit()
+		return true
 	elseif kind == "change_level" then
-		return press(game, "CHANGE_LEVEL")
+		return M.change_level(game)
 	elseif kind == "pickup" then
-		return press(game, "PICKUP_FLOOR")
+		if game.player.no_inventory_access then return false, "no_inventory" end
+		game.player:playerPickup()
+		return true
 	elseif kind == "switch_weapons" then
-		return press(game, "QUICK_SWITCH_WEAPON")
+		if game.player.no_inventory_access then return false, "no_inventory" end
+		game.player:quickSwitchWeapons()
+		return true
 	elseif kind == "open_inventory" then
-		return press(game, "SHOW_INVENTORY")
+		return M.open_inventory(game)
 	elseif kind == "open_levelup" then
-		return press(game, "LEVELUP")
+		return M.open_levelup(game)
 	elseif kind == "use" then
 		return M.use(game, action)
 	end
 	return false, "unknown_action"
+end
+
+function M.change_level(game)
+	local player = game.player
+	local before = level_before(game)
+	local terrain = game.level.map(player.x, player.y, game.level.map.TERRAIN)
+	if not (player.enoughEnergy and player:enoughEnergy() and terrain and terrain.change_level) then
+		game.log("There is no way out of this level here.")
+		return false, "level_unchanged", before
+	end
+	if player:attr("never_move") then
+		game.log("You cannot currently leave the level.")
+		return false, "level_unchanged", before
+	end
+	local stop = {}
+	for eff_id, _ in pairs(player.tmp or {}) do
+		local effect = player.tempeffect_def[eff_id]
+		if effect and effect.status == "detrimental" and not effect.no_stop_enter_worlmap then
+			stop[#stop + 1] = type(effect.desc) == "string" and effect.desc or tostring(effect.desc or "")
+		end
+	end
+	if terrain.change_zone and #stop > 0 and tostring(terrain.change_zone):find("^wilderness") then
+		game.log("You cannot go into the wilds with the following effects: %s", table.concat(stop, ", "))
+		return false, "level_unchanged", before
+	end
+	if terrain.change_level_check and terrain:change_level_check(player) then
+		return false, "level_unchanged", before
+	end
+	local destination = (terrain.change_zone or terrain.change_level_abs) and terrain.change_level or game.level.level + terrain.change_level
+	game:changeLevel(destination, terrain.change_zone, {
+		keep_old_lev = terrain.keep_old_lev,
+		force_down = terrain.force_down,
+		auto_zone_stair = terrain.change_zone_auto_stairs,
+		auto_level_stair = terrain.change_level_auto_stairs,
+		temporary_zone_shift_back = terrain.change_level_shift_back,
+	})
+	return true, nil, before
+end
+
+function M.open_inventory(game)
+	local player = game.player
+	if player.no_inventory_access then return false, "no_inventory" end
+	local dialog
+	local title = type(_t) == "function" and _t"Inventory" or "Inventory"
+	local titleupdator = player:getEncumberTitleUpdator(title)
+	dialog = player:showEquipInven(titleupdator(), nil, function(object, inven, item, button, event)
+		if not object then return end
+		local UseItemDialog = require("mod.dialogs.UseItemDialog")
+		local menu = UseItemDialog.new(event == "button", player, object, item, inven, function(_, _, _, stop)
+			dialog:generate()
+			dialog:generateList()
+			dialog:updateTitle(titleupdator())
+			if stop then game:unregisterDialog(dialog) end
+		end)
+		game:registerDialog(menu)
+	end)
+	if not dialog then return false, "inventory_unavailable" end
+	return true
+end
+
+function M.open_levelup(game)
+	local player = game.player
+	if player:attr("no_levelup_access") then
+		if type(player.no_levelup_access_log) == "string" then game.log(player.no_levelup_access_log) end
+		return false, "no_levelup"
+	end
+	player:playerLevelup(nil, false)
+	return true
+end
+
+function M.quit(game)
+	local player = game.player
+	if not player then return false, "no_player" end
+	if player.dead then return false, "player_dead" end
+	if player.runStop then player:runStop("quitting") end
+	if player.restStop then player:restStop("quitting") end
+	if game.target_co or (game.hasDialogUp and game:hasDialogUp()) then return false, "player_busy" end
+	game:saveGame()
+	if savefile_pipe and type(savefile_pipe.forceWait) == "function" then savefile_pipe:forceWait() end
+	return true, "quit"
 end
 
 return M

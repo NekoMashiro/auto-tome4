@@ -45,6 +45,7 @@ python3 tools/drive_game.py --wiggle-only
 | 字段 | 含义 |
 | --- | --- |
 | `in_game` | 角色是否已经在关卡中 |
+| `name` | 角色名，也是存档目录名 |
 | `x`，`y` | 坐标。y 向下增加 |
 | `life`，`max_life` | 当前生命和上限 |
 | `energy` | 当前能量 |

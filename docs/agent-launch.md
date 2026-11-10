@@ -104,7 +104,9 @@ descriptors = {
 
 科纳克狂战士的起始区域是巨魔沼泽，短名 `trollmire`。换种族或职业前，先确认那一组 `race`、`subrace`、`class`、`subclass` 能组成合法角色。
 
-`tools/birth_cornac_berserker.py` 会写好上面这个目录，并删掉同名的旧存档。`tools/drive_game.py` 在不带 `--save` 时会调用它。
+`tools/birth_cornac_berserker.py` 会写好上面这个目录，并删掉同名的旧存档。`tools/drive_game.py --no-play` 在不带 `--save` 时会调用它。
+
+验收不走这个角色。`python3 tools/drive_game.py` 只新建名为 `auto_test` 的科纳克狂战士，并且只删除 `~/.t-engine/4.0/tome/save/auto_test`。已经开着的游戏会被停掉且不存档，避免把验收跑进别的存档。`--save` 不能和验收一起用。
 
 ## 两条启动命令
 

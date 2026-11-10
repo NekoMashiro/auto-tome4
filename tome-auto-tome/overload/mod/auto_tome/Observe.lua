@@ -361,6 +361,7 @@ function M.around(game)
 	local zone, zone_name = zone_names(game)
 	return {
 		in_game = true,
+		name = Prompt.plain(player.name or ""),
 		x = player.x, y = player.y,
 		life = player.life, max_life = player.max_life,
 		energy = type(player.energy) == "table" and player.energy.value or 0,

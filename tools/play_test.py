@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Walk the Auto Test zone with look and act only.
 
-Launch ToME with the auto-tome addon enabled and a character already in a level,
-then run: PYTHONPATH=server python3 tools/play_test.py
+The character must already be named auto_test. Any other name exits before the
+first world command, so a campaign save is not moved into the test zone.
+
+    python3 tools/drive_game.py
 """
 
 import re
@@ -428,6 +430,11 @@ def main():
         return 1
     if not first.get("in_game"):
         print("The bridge is up, but no character is in a level yet.")
+        client.close()
+        return 2
+    if first.get("name") != "auto_test":
+        print("This test only runs as auto_test. The loaded character is %s." % (first.get("name") or "unnamed"))
+        print("It was not moved. Start the test with: python3 tools/drive_game.py")
         client.close()
         return 2
     try:

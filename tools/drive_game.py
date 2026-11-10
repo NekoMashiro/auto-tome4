@@ -2,13 +2,14 @@
 """Launch ToME straight into a level, and keep the pointer moving.
 
 Run this on the machine that shows the game. The process arguments select the
-module and character, so the main menu is never shown. By default this births a
-Cornac Berserker in Maj'Eyal and closes the birth level-up dialog. An idle
-character still blocks the engine in SDL_WaitEvent, so the pointer keeps moving
-a few pixels across the portrait until the test process exits.
+module and character, so the main menu is never shown. With no flags this births
+a character named auto_test, runs the acceptance test, and deletes only that
+save. --no-play without --save births the Cornac Berserker used for play. An
+idle character still blocks the engine in SDL_WaitEvent, so the pointer keeps
+moving a few pixels across the portrait until this process exits.
 
     python3 tools/drive_game.py
-    python3 tools/drive_game.py --save guvena
+    python3 tools/drive_game.py --save guvena --no-play
     python3 tools/drive_game.py --no-play
     python3 tools/drive_game.py --wiggle-only
 """
@@ -29,6 +30,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 from auto_tome_mcp.game import GameClient, GameError
 
 REPO = Path(__file__).resolve().parents[1]
+TEST_NAME = "auto_test"
+TEST_DESCRIPTOR = """module = "tome"
+module_version = {1,7,6}
+name = "auto_test"
+short_name = "auto_test"
+force_fallback = true
+description = "Acceptance-test Cornac Berserker. This save is disposable."
+descriptors = {
+	["difficulty"] = "Normal",
+	["permadeath"] = "Adventure",
+	["race"] = "Human",
+	["subrace"] = "Cornac",
+	["class"] = "Warrior",
+	["subclass"] = "Berserker",
+	["base"] = "base",
+}
+"""
 
 
 class Desktop:
@@ -185,6 +203,30 @@ def engine_command(save_name):
     return ["./t-engine", "-Mtome", "-n", "-E" + extra]
 
 
+def prepare_test_character():
+    # The birth dialog copies short_name into the character name, and that name is the save directory.
+    root = Path.home() / ".t-engine" / "4.0" / "tome"
+    vault = root / "vault" / TEST_NAME
+    save = root / "save" / TEST_NAME
+    if vault.exists():
+        shutil.rmtree(vault)
+    vault.mkdir(parents=True)
+    (vault / "desc.lua").write_text(TEST_DESCRIPTOR)
+    (vault / "character.teac").write_bytes(b"\n")
+    if save.exists():
+        print("removing only %s" % save, flush=True)
+        shutil.rmtree(save)
+
+
+def test_engine_command():
+    prepare_test_character()
+    extra = (
+        'auto_quickbirth="%s" no_birth_popup=true birth_done_script=[==[game.paused = false]==]'
+        % TEST_NAME
+    )
+    return ["./t-engine", "-Mtome", "-n", "-E" + extra]
+
+
 def look_once(timeout):
     client = GameClient(timeout=timeout)
     try:
@@ -222,7 +264,7 @@ def main():
     parser.add_argument("--xauthority", default=os.environ.get("XAUTHORITY", str(Path.home() / ".Xauthority")))
     parser.add_argument("--game", default=str(Path.home() / "tome-test" / "t-engine4-linux64-1.7.6"))
     parser.add_argument("--log", default=str(Path.home() / "tome-test" / "tome.log"))
-    parser.add_argument("--save", help="Load this save. Without it, birth a Cornac Berserker.")
+    parser.add_argument("--save", help="Load this save. Only valid with --no-play. The acceptance test always uses auto_test.")
     parser.add_argument("--no-play", action="store_true", help="Stop once a character can act, and keep moving the pointer.")
     parser.add_argument("--wiggle-only", action="store_true", help="The game is already open. Only move the pointer.")
     parser.add_argument("--quit", action="store_true", help="Close the game when this script exits.")
@@ -239,13 +281,23 @@ def main():
             os.killpg(started.pid, signal.SIGTERM)
         return status
 
-    if not args.wiggle_only and not playable(look_once(3)):
+    running_test = not args.no_play and not args.wiggle_only
+    if running_test and args.save:
+        print("The acceptance test always uses the auto_test character and does not load --save.")
+        print("Load an existing character with: python3 tools/drive_game.py --save NAME --no-play")
+        return 2
+
+    # The test must not attach to a character that is already in a level. enter_test saves on the zone change.
+    if not args.wiggle_only and (running_test or not playable(look_once(3))):
         if not (game_dir / "t-engine").exists():
             print("Game binary is missing: %s" % (game_dir / "t-engine"))
             return 2
         install_addon(REPO / "tome-auto-tome", game_dir / "game" / "addons" / "tome-auto-tome")
+        if running_test:
+            print("stopping the current game without saving, then starting auto_test", flush=True)
         stop_game()
-        started = launch_game(game_dir, log_path, display, engine_command(args.save))
+        command = test_engine_command() if running_test else engine_command(args.save)
+        started = launch_game(game_dir, log_path, display, command)
 
     display.start_wiggle()
     try:

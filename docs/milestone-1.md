@@ -116,13 +116,15 @@ python3 tools/test_mcp_framing.py
 python3 tools/drive_game.py
 ```
 
-它会启动 `~/tome-test/t-engine4-linux64-1.7.6` 里的 1.7.6，把本仓库的插件复制成 `game/addons` 下的真实目录，用 `-Mtome -n` 直接建一个科纳克狂战士并进入巨魔沼泽，再跑 `play_test.py`。主菜单和建角窗口都不会出现。`--save 名字` 改为读取已有存档。`--wiggle-only` 只移动指针。`--quit` 在脚本结束时关掉游戏。
+它会启动 `~/tome-test/t-engine4-linux64-1.7.6` 里的 1.7.6，把本仓库的插件复制成 `game/addons` 下的真实目录，用 `-Mtome -n` 新建一个名为 `auto_test` 的科纳克狂战士并进入巨魔沼泽，再跑 `play_test.py`。主菜单和建角窗口都不会出现。只删除 `~/.t-engine/4.0/tome/save/auto_test` 和同名的 vault。已经开着的进程会被停掉且不存档，所以不会把验收写进别的角色。读已有存档用 `python3 tools/drive_game.py --save 名字 --no-play`，这条不跑验收。`--wiggle-only` 只移动指针。`--quit` 在脚本结束时关掉游戏。
 
-游戏已经在关卡里、只想重跑验收时：
+游戏已经由 `auto_test` 停在关卡里、只想重跑验收时：
 
 ```bash
 PYTHONPATH=server python3 tools/play_test.py
 ```
+
+当前角色名不是 `auto_test` 时，脚本在第一条世界命令之前退出。
 
 ## 引擎的空闲等待
 

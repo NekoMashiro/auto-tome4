@@ -102,7 +102,96 @@ descriptors = {
 
 不要写 `sex`。省略时角色是女性。表里只要出现 `sex`，不管值写什么，角色都会变成男性。
 
-科纳克狂战士的起始区域是巨魔沼泽，短名 `trollmire`。换种族或职业前，先确认那一组 `race`、`subrace`、`class`、`subclass` 能组成合法角色。
+科纳克狂战士的起始区域是巨魔沼泽，短名 `trollmire`。其它组合用下面的 id。子职业必须属于它那一列的大类。档案还没解锁的项，自动确认对不上，人会停在建角画面。
+
+## 游戏模式
+
+`permadeath` 就是死亡模式。探索、冒险、一命对应这三个 id。界面中文来自游戏自己的翻译。三种都能用 `quit` 存档。区别在命数，不在能不能存。
+
+| 写入的 id | 界面 | 规则 |
+| --- | --- | --- |
+| `Exploration` | 探索模式 | 无限命，城镇里可以随时洗点。捐助者选项。没开捐助时这一项是锁住的，自动确认不会选中它 |
+| `Adventure` | 冒险模式 | 有限的额外命。1、2、5、7、14、24、35 级各给一条命，死亡后在本层起点复活。新档案默认就是这个 |
+| `Roguelike` | 永久死亡模式 | 一命。只有游戏里找到的复活办法才能再起来 |
+
+## 难度
+
+`difficulty` 必须写。简单难度的 id 是 `Easy`，不是界面上的 Easier。
+
+| 写入的 id | 界面 | 新档案 |
+| --- | --- | --- |
+| `Easy` | 简单 | 可选。玩家受伤减少，治疗增加，负面状态更短。不给成就 |
+| `Normal` | 普通 | 可选。默认难度。击杀后 2 回合不能上楼梯 |
+| `Nightmare` | 梦魇 | 可选。区域等级、怪物技能和稀有怪都提高 |
+| `Insane` | 疯狂 | 要先解锁 |
+| `Madness` | 绝望 | 要先解锁 |
+
+不要写 `Tutorial`。它不出现在正常建角里。
+
+## 种族
+
+`race` 是大类，`subrace` 是具体种族。出生地是没被职业改掉时的第一张地图，`look` 里的 `zone` 用短名。
+
+| `race` | `subrace` | 界面 | 新档案 | 出生地 |
+| --- | --- | --- | --- | --- |
+| `Human` | `Cornac` | 人类，科纳克人 | 可选 | `trollmire`，巨魔沼泽 |
+| `Human` | `Higher` | 人类，高等人类 | 可选 | `trollmire`，巨魔沼泽 |
+| `Elf` | `Shalore` | 精灵，永恒精灵 | 可选 | `scintillating-caves`，闪光洞穴 |
+| `Elf` | `Thalore` | 精灵，自然精灵 | 可选 | `norgos-lair`，诺尔格斯巢穴 |
+| `Halfling` | `Halfling` | 半身人 | 可选 | `trollmire`，巨魔沼泽 |
+| `Dwarf` | `Dwarf` | 矮人 | 可选 | `reknor-escape`，从瑞库纳逃亡 |
+| `Yeek` | `Yeek` | 夺心魔 | 要先解锁 | `town-irkkk`，伊尔克 |
+| `Giant` | `Ogre` | 巨人，食人魔 | 要先解锁 | `scintillating-caves`，闪光洞穴 |
+| `Undead` | `Ghoul` | 不死族，食尸鬼 | 要先解锁 | `blighted-ruins`，荒芜废墟 |
+| `Undead` | `Skeleton` | 不死族，骷髅 | 要先解锁 | `blighted-ruins`，荒芜废墟 |
+| `Construct` | `Runic Golem` | 构装生物，符文傀儡 | 要先解锁，没解锁时界面里不显示 | `ruins-kor-pul`，卡·普尔废墟 |
+
+不死族不能选野性系。巫妖、教程人类不要写。
+
+## 职业
+
+`class` 是大类，`subclass` 是具体职业。同一格里的子职业才能配这个大类。
+
+| `class` | `subclass` | 界面 | 新档案 |
+| --- | --- | --- | --- |
+| `Warrior` | `Berserker` | 战士系，狂战士 | 可选 |
+| `Warrior` | `Bulwark` | 战士系，盾战士 | 可选 |
+| `Warrior` | `Archer` | 战士系，弓箭手 | 可选 |
+| `Warrior` | `Arcane Blade` | 战士系，奥术之刃 | 可选 |
+| `Warrior` | `Brawler` | 战士系，格斗家 | 要先解锁 |
+| `Rogue` | `Rogue` | 盗贼 | 可选。大类和子职业的 id 都是 `Rogue` |
+| `Rogue` | `Shadowblade` | 盗贼，影舞者 | 可选 |
+| `Rogue` | `Marauder` | 盗贼，掠夺者 | 要先解锁 |
+| `Rogue` | `Skirmisher` | 盗贼，散兵 | 要先解锁 |
+| `Mage` | `Alchemist` | 法师系，炼金术师 | 可选 |
+| `Mage` | `Archmage` | 法师系，元素法师 | 要先解锁 |
+| `Mage` | `Necromancer` | 法师系，死灵法师 | 要先解锁 |
+| `Wilder` | `Summoner` | 野性系，召唤师 | 要先解锁 |
+| `Wilder` | `Wyrmic` | 野性系，龙战士 | 要先解锁 |
+| `Wilder` | `Stone Warden` | 野性系，岩石守卫 | 要先解锁 |
+| `Wilder` | `Oozemancer` | 野性系，软泥使 | 要先解锁。野性系这一大类要召唤师、龙战士、岩石守卫里至少解锁一个才会出现 |
+| `Celestial` | `Sun Paladin` | 天空系，太阳骑士 | 要先解锁 |
+| `Celestial` | `Anorithil` | 天空系，星月术士 | 要先解锁 |
+| `Chronomancer` | `Paradox Mage` | 时空系，时空法师 | 要先解锁 |
+| `Chronomancer` | `Temporal Warden` | 时空系，时空守卫 | 要先解锁 |
+| `Defiler` | `Reaver` | 堕落系，收割者 | 要先解锁 |
+| `Defiler` | `Corruptor` | 堕落系，腐化者 | 要先解锁 |
+| `Afflicted` | `Cursed` | 痛苦系，被诅咒者 | 要先解锁 |
+| `Afflicted` | `Doomed` | 痛苦系，末日使者 | 要先解锁 |
+| `Psionic` | `Mindslayer` | 灵能系，心灵杀手 | 要先解锁 |
+| `Psionic` | `Solipsist` | 灵能系，织梦者 | 要先解锁 |
+| `Adventurer` | `Adventurer` | 冒险家 | 要先解锁，没解锁时不显示 |
+| `Adventurer` | `Wanderer` | 流浪者 | 要先解锁，没解锁时不显示 |
+
+这些职业会改掉种族的出生地，只在 Maj'Eyal 战役里生效：
+
+| 职业 | 条件 | 出生地 |
+| --- | --- | --- |
+| 太阳骑士、星月术士 | 人类或精灵 | `town-gates-of-morning`，晨曦之门 |
+| 元素法师 | 人类、精灵、半身人或食人魔 | `town-angolwen`，安格利文 |
+| 时空法师、时空守卫 | 不是不死族、矮人、夺心魔 | `town-point-zero`，零点圣域 |
+
+不要写 `None` 和教程职业。
 
 `tools/birth_cornac_berserker.py` 会写好上面这个目录，并删掉同名的旧存档。`tools/drive_game.py --no-play` 在不带 `--save` 时会调用它。
 

@@ -126,7 +126,7 @@ python3 tools/drive_game.py --wiggle-only
 | `wait` | 无 | 空过一回合 |
 | `run` | `direction` | 朝该方向一直跑，直到被挡住 |
 | `move_to` | `x`，`y` | 用游戏的点地寻路走到这一格。`x`、`y` 是地图坐标，必须是整数 |
-| `auto_explore` | 无 | 用游戏自己的自动探索，直到它停下 |
+| `auto_explore` | 无 | 用游戏自己的自动探索，直到它停下。超过 5000 步仍没停时强制停下，日志写 `Auto-explore stopped after 5000 steps.` |
 | `rest` | 无 | 休息到回复满、被打断，或游戏自己停 |
 | `change_level` | 无 | 使用脚上的楼梯。返回 `from_level`、`from_zone`、`level_move`：`up`、`down`、`zone` 或 `none`。没动是失败，不能只看日志 |
 | `quit` | 无 | 唯一的存档方式：存档并退出进程。窗口开着或角色已死亡时失败 |
@@ -181,7 +181,7 @@ python3 tools/drive_game.py --wiggle-only
 {"type": "auto_explore"}
 ```
 
-这一条会自己走很多格，直到探索停下。停下来之后读 `actors` 和 `log`。看见敌人就改去战斗，不要接着探索。日志里出现 “There is nowhere left to explore.” 时，这层能走的地方已经走完。
+这一条会自己走很多格，直到探索停下。停下来之后读 `actors` 和 `log`。看见敌人就改去战斗，不要接着探索。日志里出现 “There is nowhere left to explore.” 时，这层能走的地方已经走完。出现 “Auto-explore stopped after 5000 steps.” 时是步数到了上限，这层不一定走完。
 
 血量不满、视野里没有敌人时，一次休息回到满血：
 

@@ -35,6 +35,7 @@ TOOLS = [
             "Answers are choose, aim, quantity, adjust, text, and cancel. choose takes label, the option text just returned. "
             "A world command fails with player_busy while a window or target prompt is open: read message and options. "
             "move_to takes x and y and uses the game's click-to-walk. It paths when no enemy is visible, and takes one step toward the point when an enemy is visible. "
+            "auto_explore stops itself after 5000 steps and logs Auto-explore stopped after 5000 steps. "
             "change_level adds from_level, from_zone, and level_move: up, down, zone, or none. "
             "There is no save command. quit saves and exits the process. It fails if a window is open or the character is dead."
         ),
